@@ -4,6 +4,18 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Cadavre exquis</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; font: 20px/1.5 Georgia, 'Times New Roman', serif; }
+  main { width: min(36rem, 90vw); padding: 2rem 0; }
+  h1 { font-size: 1rem; font-weight: normal; letter-spacing: .2em; text-transform: uppercase; opacity: .5; margin: 0 0 2rem; }
+  .done { margin: 0; opacity: .3; }
+  .q { font-size: 2rem; margin: .5rem 0 1rem; }
+  input[type=text] { width: 100%; box-sizing: border-box; font: inherit; padding: .5rem 0; border: 0; border-bottom: 2px solid currentColor; background: transparent; color: inherit; outline: none; }
+  button { font: inherit; margin-top: 1.5rem; padding: .4rem 1.2rem; cursor: pointer; }
+  .link { font-size: .8rem; opacity: .6; word-break: break-all; cursor: pointer; }
+  .story { font-size: 1.5rem; line-height: 1.7; }
+</style>
 </head>
 <body>
 <main id="app"></main>
@@ -35,6 +47,23 @@ function nextQuestion(answers, playerId) {
 
 function allDone(roster, answers) {
   return roster.every((id) => nextQuestion(answers, id) === QUESTIONS.length);
+}
+
+function reduce(state, type, data) {
+  switch (type) {
+    case 'hello':
+      return state.known.includes(data.playerId) ? state : { ...state, known: [...state.known, data.playerId] };
+    case 'roster':
+      return { ...state, roster: mergeRoster(state.roster, data.roster) };
+    case 'answer':
+      return { ...state, answers: mergeAnswer(state.answers, data.playerId, data.q, data.text) };
+    default:
+      return state;
+  }
+}
+
+function startRoster(state) {
+  return [...state.known].sort();
 }
 // </core>
 
@@ -79,6 +108,95 @@ async function connect(roomId, local) {
   };
 }
 // </transport>
+
+// ---- app ----
+const el = (tag, props = {}, ...kids) => {
+  const n = Object.assign(document.createElement(tag), props);
+  n.append(...kids);
+  return n;
+};
+
+const hash = location.hash.slice(1);
+if (!hash) location.hash = Math.random().toString(36).slice(2, 8);
+const [roomId, flags] = (location.hash.slice(1)).split('?');
+const local = flags === 'local';
+const storeKey = 'cadavre:' + roomId;
+const idKey = 'cadavre:id' + (local ? ':' + (window.name || (window.name = Math.random().toString(36).slice(2))) : '');
+const playerId = localStorage[idKey] || (localStorage[idKey] = Math.random().toString(36).slice(2, 10));
+
+const saved = JSON.parse(localStorage[storeKey] || '{}');
+let state = { playerId, known: [playerId], roster: saved.roster || null, answers: saved.answers || {} };
+let forceReveal = false;
+const app = document.getElementById('app');
+const net = await connect(roomId, local);
+
+function update(type, data) {
+  state = reduce(state, type, data);
+  localStorage[storeKey] = JSON.stringify({ roster: state.roster, answers: state.answers });
+  render();
+}
+
+function broadcast(type, data) {
+  net.send(type, data);
+  update(type, data);
+}
+
+net.onMessage((type, data) => update(type, data));
+net.onPeerJoin(() => {
+  net.send('hello', { playerId });
+  if (state.roster) net.send('roster', { roster: state.roster });
+  for (const [id, lines] of Object.entries(state.answers)) {
+    lines.forEach((text, q) => text && net.send('answer', { playerId: id, q, text }));
+  }
+});
+net.send('hello', { playerId });
+
+function render() {
+  const title = el('h1', {}, 'Cadavre exquis');
+  app.replaceChildren(title);
+  const { roster } = state;
+  if (!roster) return renderLobby();
+  if (!roster.includes(playerId)) return app.append(el('p', {}, 'This game has already started. Open a new room to play.'));
+  const q = nextQuestion(state.answers, playerId);
+  if (q < QUESTIONS.length) return renderQuestion(q);
+  if (allDone(roster, state.answers) || forceReveal) return renderStory();
+  renderWaiting();
+}
+
+function renderLobby() {
+  const link = el('p', { className: 'link', title: 'Click to copy', onclick: () => navigator.clipboard?.writeText(location.href) }, location.href);
+  const start = el('button', { onclick: () => broadcast('roster', { roster: startRoster(state) }) }, 'Start');
+  app.append(el('p', {}, 'Share this link, then start when everyone is here.'), link, el('p', {}, `${state.known.length} player${state.known.length === 1 ? '' : 's'} here`), start);
+}
+
+function renderQuestion(q) {
+  const input = el('input', { type: 'text', autocomplete: 'off', maxLength: 300 });
+  const submit = el('button', { type: 'submit', disabled: true }, 'Submit');
+  input.oninput = () => (submit.disabled = !input.value.trim());
+  const form = el('form', {}, input, submit);
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    const text = input.value.trim();
+    if (text) broadcast('answer', { playerId, q, text });
+  };
+  app.append(...QUESTIONS.slice(0, q).map((t) => el('p', { className: 'done' }, t)), el('p', { className: 'q' }, QUESTIONS[q]), form);
+  input.focus();
+}
+
+function renderWaiting() {
+  const pending = state.roster.filter((id) => nextQuestion(state.answers, id) < QUESTIONS.length).length;
+  app.append(
+    el('p', {}, `Waiting for ${pending} other${pending === 1 ? '' : 's'}…`),
+    el('button', { onclick: () => { forceReveal = true; render(); } }, 'Reveal anyway'),
+  );
+}
+
+function renderStory() {
+  const lines = assemble(state.roster, state.answers, state.roster.indexOf(playerId));
+  app.append(el('p', { className: 'story' }, lines.join(' ')));
+}
+
+render();
 </script>
 </body>
 </html>
