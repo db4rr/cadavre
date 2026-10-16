@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cadavre exquis</title>
+</head>
+<body>
+<main id="app"></main>
+<script type="module">
+// <core>
+const QUESTIONS = ['Who?', 'Where?', 'When?', 'With whom?', 'What were they doing?', 'Why?', 'What did they say?', 'What happened next?', 'How did it end?'];
+
+function assemble(roster, answers, p) {
+  const n = roster.length;
+  return QUESTIONS.map((_, k) => answers[roster[(p + k) % n]]?.[k] || '…');
+}
+
+function mergeAnswer(answers, playerId, q, text) {
+  const prev = answers[playerId] || [];
+  const mine = QUESTIONS.map((_, i) => (i === q ? text : prev[i]));
+  return { ...answers, [playerId]: mine };
+}
+
+function mergeRoster(current, incoming) {
+  if (!current) return incoming;
+  return incoming.join(',') < current.join(',') ? incoming : current;
+}
+
+function nextQuestion(answers, playerId) {
+  const mine = answers[playerId] || [];
+  const i = QUESTIONS.findIndex((_, q) => !mine[q]);
+  return i === -1 ? QUESTIONS.length : i;
+}
+
+function allDone(roster, answers) {
+  return roster.every((id) => nextQuestion(answers, id) === QUESTIONS.length);
+}
+// </core>
+</script>
+</body>
+</html>
