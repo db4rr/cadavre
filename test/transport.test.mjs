@@ -30,3 +30,15 @@ test('local transport: rooms are isolated', async () => {
   assert.equal(joined, false);
   a.close(); b.close();
 });
+
+test('local transport: peers are told when someone leaves', async () => {
+  const room = 'l' + Math.random();
+  const a = await connect(room, true);
+  const joined = once((r) => a.onPeerJoin(r));
+  const b = await connect(room, true);
+  const id = await joined;
+  const left = once((r) => a.onPeerLeave(r));
+  b.close();
+  assert.equal(await left, id);
+  a.close();
+});

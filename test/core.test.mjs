@@ -4,8 +4,8 @@ import { readFileSync } from 'node:fs';
 
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const code = html.split('// <core>')[1].split('// </core>')[0];
-const { QUESTIONS, assemble, mergeAnswer, mergeRoster, nextQuestion, allDone, reduce, startRoster } =
-  new Function(code + '; return {QUESTIONS, assemble, mergeAnswer, mergeRoster, nextQuestion, allDone, reduce, startRoster}')();
+const { QUESTIONS, assemble, mergeAnswer, mergeRoster, nextQuestion, allDone, reduce, startRoster, viewKey } =
+  new Function(code + '; return {QUESTIONS, assemble, mergeAnswer, mergeRoster, nextQuestion, allDone, reduce, startRoster, viewKey}')();
 
 const full = (id) => Array.from({ length: 9 }, (_, q) => id + q);
 const answersFor = (ids) => Object.fromEntries(ids.map((id) => [id, full(id)]));
@@ -47,10 +47,11 @@ test('mergeAnswer is idempotent and does not mutate', () => {
   assert.equal(once.a[2], 'hi');
 });
 
-test('mergeRoster converges on the smallest roster', () => {
-  assert.deepEqual(mergeRoster(null, ['b', 'a']), ['b', 'a']);
-  assert.deepEqual(mergeRoster(['a', 'b'], ['a', 'c']), ['a', 'b']);
-  assert.deepEqual(mergeRoster(['a', 'c'], ['a', 'b']), ['a', 'b']);
+test('mergeRoster is the sorted union, so a late solo Start never evicts anyone', () => {
+  assert.deepEqual(mergeRoster(null, ['b', 'a']), ['a', 'b']);
+  assert.deepEqual(mergeRoster(['a', 'b', 'c'], ['0']), ['0', 'a', 'b', 'c']);
+  assert.deepEqual(mergeRoster(['a', 'c'], ['a', 'b']), ['a', 'b', 'c']);
+  assert.deepEqual(mergeRoster(['a', 'b'], ['a', 'b']), ['a', 'b']);
 });
 
 test('nextQuestion finds the first unanswered question', () => {
@@ -81,11 +82,18 @@ test('reduce answer merges and replays are no-ops', () => {
   assert.equal(once.answers.b[0], 'cat');
 });
 
-test('reduce roster keeps the smallest roster', () => {
+test('reduce roster accumulates the union of rosters', () => {
   let st = reduce(fresh(), 'roster', { roster: ['a', 'c'] });
   st = reduce(st, 'roster', { roster: ['a', 'b'] });
   st = reduce(st, 'roster', { roster: ['a', 'd'] });
-  assert.deepEqual(st.roster, ['a', 'b']);
+  assert.deepEqual(st.roster, ['a', 'b', 'c', 'd']);
+});
+
+test('reduce bye drops a player from the lobby but never from a started roster', () => {
+  let st = reduce(reduce(fresh(), 'hello', { playerId: 'b' }), 'bye', { playerId: 'b' });
+  assert.deepEqual(st.known, ['me']);
+  st = reduce(reduce(st, 'hello', { playerId: 'b' }), 'roster', { roster: ['b', 'me'] });
+  assert.deepEqual(reduce(st, 'bye', { playerId: 'b' }).known, ['me', 'b']);
 });
 
 test('reduce ignores unknown message types and does not mutate', () => {
@@ -99,4 +107,16 @@ test('reduce ignores unknown message types and does not mutate', () => {
 test('startRoster is the sorted set of known players', () => {
   const st = reduce(reduce(fresh('m'), 'hello', { playerId: 'b' }), 'hello', { playerId: 'a' });
   assert.deepEqual(startRoster(st), ['a', 'b', 'm']);
+});
+
+test('viewKey identifies the screen so typing is not wiped by unrelated updates', () => {
+  const me = 'me';
+  assert.equal(viewKey(fresh(me), false), 'lobby');
+  const started = { ...fresh(me), roster: ['me', 'b'] };
+  assert.equal(viewKey(started, false), 'q0');
+  assert.equal(viewKey({ ...started, answers: { me: ['x'] } }, false), 'q1');
+  assert.equal(viewKey({ ...started, roster: ['b', 'c'] }, false), 'closed');
+  assert.equal(viewKey({ ...started, answers: { me: full('me') } }, false), 'wait');
+  assert.equal(viewKey({ ...started, answers: { me: full('me') } }, true), 'story');
+  assert.equal(viewKey({ ...started, answers: answersFor(['me', 'b']) }, false), 'story');
 });

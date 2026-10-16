@@ -35,8 +35,7 @@ function mergeAnswer(answers, playerId, q, text) {
 }
 
 function mergeRoster(current, incoming) {
-  if (!current) return incoming;
-  return incoming.join(',') < current.join(',') ? incoming : current;
+  return [...new Set([...(current || []), ...incoming])].sort();
 }
 
 function nextQuestion(answers, playerId) {
@@ -53,6 +52,8 @@ function reduce(state, type, data) {
   switch (type) {
     case 'hello':
       return state.known.includes(data.playerId) ? state : { ...state, known: [...state.known, data.playerId] };
+    case 'bye':
+      return state.roster ? state : { ...state, known: state.known.filter((id) => id !== data.playerId) };
     case 'roster':
       return { ...state, roster: mergeRoster(state.roster, data.roster) };
     case 'answer':
@@ -60,6 +61,15 @@ function reduce(state, type, data) {
     default:
       return state;
   }
+}
+
+function viewKey(state, forceReveal) {
+  const { roster, playerId, answers } = state;
+  if (!roster) return 'lobby';
+  if (!roster.includes(playerId)) return 'closed';
+  const q = nextQuestion(answers, playerId);
+  if (q < QUESTIONS.length) return 'q' + q;
+  return allDone(roster, answers) || forceReveal ? 'story' : 'wait';
 }
 
 function startRoster(state) {
@@ -71,10 +81,12 @@ function startRoster(state) {
 async function connect(roomId, local) {
   const msgHandlers = [];
   const joinHandlers = [];
+  const leaveHandlers = [];
   const emit = (list, ...args) => list.forEach((fn) => fn(...args));
   const api = {
     onMessage: (fn) => msgHandlers.push(fn),
     onPeerJoin: (fn) => joinHandlers.push(fn),
+    onPeerLeave: (fn) => leaveHandlers.push(fn),
   };
 
   if (!local) {
@@ -82,6 +94,7 @@ async function connect(roomId, local) {
     const room = joinRoom({ appId: 'cadavre-exquis-dbarr' }, roomId);
     const action = room.makeAction('msg');
     room.onPeerJoin = (peerId) => emit(joinHandlers, peerId);
+    room.onPeerLeave = (peerId) => emit(leaveHandlers, peerId);
     action.onMessage = (m, { peerId }) => emit(msgHandlers, m.type, m.data, peerId);
     return { ...api, send: (type, data) => action.send({ type, data }), close: () => room.leave() };
   }
@@ -96,6 +109,9 @@ async function connect(roomId, local) {
         emit(joinHandlers, m.from);
         if (!m.reply) channel.postMessage({ kind: 'ping', reply: true, from: me });
       }
+    } else if (m.kind === 'bye') {
+      known.delete(m.from);
+      emit(leaveHandlers, m.from);
     } else {
       emit(msgHandlers, m.type, m.data, m.from);
     }
@@ -104,7 +120,10 @@ async function connect(roomId, local) {
   return {
     ...api,
     send: (type, data) => channel.postMessage({ kind: 'msg', type, data, from: me }),
-    close: () => channel.close(),
+    close: () => {
+      channel.postMessage({ kind: 'bye', from: me });
+      channel.close();
+    },
   };
 }
 // </transport>
@@ -128,7 +147,17 @@ const saved = JSON.parse(localStorage[storeKey] || '{}');
 let state = { playerId, known: [playerId], roster: saved.roster || null, answers: saved.answers || {} };
 let forceReveal = false;
 const app = document.getElementById('app');
-const net = await connect(roomId, local);
+app.replaceChildren(el('p', {}, 'Connecting…'));
+let net;
+try {
+  net = await connect(roomId, local);
+} catch (err) {
+  app.replaceChildren(el('p', {}, "Couldn't connect. Check your network and reload."));
+  throw err;
+}
+addEventListener('pagehide', () => net.close());
+const peerPlayer = {};
+let lastKey = null;
 
 function update(type, data) {
   state = reduce(state, type, data);
@@ -141,7 +170,15 @@ function broadcast(type, data) {
   update(type, data);
 }
 
-net.onMessage((type, data) => update(type, data));
+net.onMessage((type, data, peerId) => {
+  if (type === 'hello') peerPlayer[peerId] = data.playerId;
+  const before = JSON.stringify(state.roster);
+  update(type, data);
+  if (type === 'roster' && JSON.stringify(state.roster) !== before) net.send('roster', { roster: state.roster });
+});
+net.onPeerLeave((peerId) => {
+  if (peerPlayer[peerId]) update('bye', { playerId: peerPlayer[peerId] });
+});
 net.onPeerJoin(() => {
   net.send('hello', { playerId });
   if (state.roster) net.send('roster', { roster: state.roster });
@@ -152,15 +189,15 @@ net.onPeerJoin(() => {
 net.send('hello', { playerId });
 
 function render() {
-  const title = el('h1', {}, 'Cadavre exquis');
-  app.replaceChildren(title);
-  const { roster } = state;
-  if (!roster) return renderLobby();
-  if (!roster.includes(playerId)) return app.append(el('p', {}, 'This game has already started. Open a new room to play.'));
-  const q = nextQuestion(state.answers, playerId);
-  if (q < QUESTIONS.length) return renderQuestion(q);
-  if (allDone(roster, state.answers) || forceReveal) return renderStory();
-  renderWaiting();
+  const key = viewKey(state, forceReveal);
+  if (key === lastKey && key.startsWith('q')) return;
+  lastKey = key;
+  app.replaceChildren(el('h1', {}, 'Cadavre exquis'));
+  if (key === 'lobby') return renderLobby();
+  if (key === 'closed') return app.append(el('p', {}, 'This game has already started. Open a new room to play.'));
+  if (key === 'story') return renderStory();
+  if (key === 'wait') return renderWaiting();
+  renderQuestion(Number(key.slice(1)));
 }
 
 function renderLobby() {
