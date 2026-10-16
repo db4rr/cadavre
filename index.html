@@ -158,6 +158,7 @@ try {
 addEventListener('pagehide', () => net.close());
 const peerPlayer = {};
 let lastKey = null;
+let copied = false;
 
 function update(type, data) {
   state = reduce(state, type, data);
@@ -188,9 +189,9 @@ net.onPeerJoin(() => {
 });
 net.send('hello', { playerId });
 
-function render() {
+function render(force = false) {
   const key = viewKey(state, forceReveal);
-  if (key === lastKey && key.startsWith('q')) return;
+  if (key === lastKey && key.startsWith('q') && !force) return;
   lastKey = key;
   app.replaceChildren(el('h1', {}, 'Cadavre exquis'));
   if (key === 'lobby') return renderLobby();
@@ -201,9 +202,20 @@ function render() {
 }
 
 function renderLobby() {
-  const link = el('p', { className: 'link', title: 'Click to copy', onclick: () => navigator.clipboard?.writeText(location.href) }, location.href);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(location.href);
+      copied = true;
+    } catch {
+      getSelection().selectAllChildren(link);
+    }
+    render(true);
+    setTimeout(() => { copied = false; render(true); }, 1500);
+  };
+  const link = el('p', { className: 'link', title: 'Click to copy', onclick: copy }, location.href);
+  const copyBtn = el('button', { onclick: copy }, copied ? 'Copied ✓' : 'Copy link');
   const start = el('button', { onclick: () => broadcast('roster', { roster: startRoster(state) }) }, 'Start');
-  app.append(el('p', {}, 'Share this link, then start when everyone is here.'), link, el('p', {}, `${state.known.length} player${state.known.length === 1 ? '' : 's'} here`), start);
+  app.append(el('p', {}, 'Share this link, then start when everyone is here.'), link, copyBtn, el('p', {}, `${state.known.length} player${state.known.length === 1 ? '' : 's'} here`), start);
 }
 
 function renderQuestion(q) {
