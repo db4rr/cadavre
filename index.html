@@ -13,7 +13,9 @@
   .q { font-size: 2rem; margin: .5rem 0 1rem; }
   input[type=text] { width: 100%; box-sizing: border-box; font: inherit; padding: .5rem 0; border: 0; border-bottom: 2px solid currentColor; background: transparent; color: inherit; outline: none; }
   button { font: inherit; margin-top: 1.5rem; padding: .4rem 1.2rem; cursor: pointer; }
-  .link { font-size: .8rem; opacity: .6; word-break: break-all; cursor: pointer; }
+  .linkrow { display: flex; align-items: center; gap: .6rem; margin: 1rem 0; }
+  .link { flex: 0 1 auto; min-width: 0; margin: 0; font-size: .8rem; opacity: .6; word-break: break-all; cursor: pointer; }
+  .linkrow button { flex: none; margin: 0; padding: .15rem .6rem; font-size: .8rem; }
   .story { font-size: 1.5rem; line-height: 1.7; }
 </style>
 </head>
@@ -213,9 +215,9 @@ function renderLobby() {
     setTimeout(() => { copied = false; render(true); }, 1500);
   };
   const link = el('p', { className: 'link', title: 'Click to copy', onclick: copy }, location.href);
-  const copyBtn = el('button', { onclick: copy }, copied ? 'Copied ✓' : 'Copy link');
+  const copyBtn = el('button', { onclick: copy }, copied ? 'Copied ✓' : 'Copy');
   const start = el('button', { onclick: () => broadcast('roster', { roster: startRoster(state) }) }, 'Start');
-  app.append(el('p', {}, 'Share this link, then start when everyone is here.'), link, copyBtn, el('p', {}, `${state.known.length} player${state.known.length === 1 ? '' : 's'} here`), start);
+  app.append(el('p', {}, 'Share this link, then start when everyone is here.'), el('div', { className: 'linkrow' }, link, copyBtn), el('p', {}, `${state.known.length} player${state.known.length === 1 ? '' : 's'} here`), start);
 }
 
 function renderQuestion(q) {
