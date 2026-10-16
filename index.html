@@ -37,6 +37,48 @@ function allDone(roster, answers) {
   return roster.every((id) => nextQuestion(answers, id) === QUESTIONS.length);
 }
 // </core>
+
+// <transport>
+async function connect(roomId, local) {
+  const msgHandlers = [];
+  const joinHandlers = [];
+  const emit = (list, ...args) => list.forEach((fn) => fn(...args));
+  const api = {
+    onMessage: (fn) => msgHandlers.push(fn),
+    onPeerJoin: (fn) => joinHandlers.push(fn),
+  };
+
+  if (!local) {
+    const { joinRoom } = await import('https://esm.run/trystero@0.26.0');
+    const room = joinRoom({ appId: 'cadavre-exquis-dbarr' }, roomId);
+    const action = room.makeAction('msg');
+    room.onPeerJoin = (peerId) => emit(joinHandlers, peerId);
+    action.onMessage = (m, { peerId }) => emit(msgHandlers, m.type, m.data, peerId);
+    return { ...api, send: (type, data) => action.send({ type, data }), close: () => room.leave() };
+  }
+
+  const me = Math.random().toString(36).slice(2);
+  const known = new Set();
+  const channel = new BroadcastChannel('cadavre-' + roomId);
+  channel.onmessage = ({ data: m }) => {
+    if (m.kind === 'ping') {
+      if (!known.has(m.from)) {
+        known.add(m.from);
+        emit(joinHandlers, m.from);
+        if (!m.reply) channel.postMessage({ kind: 'ping', reply: true, from: me });
+      }
+    } else {
+      emit(msgHandlers, m.type, m.data, m.from);
+    }
+  };
+  channel.postMessage({ kind: 'ping', from: me });
+  return {
+    ...api,
+    send: (type, data) => channel.postMessage({ kind: 'msg', type, data, from: me }),
+    close: () => channel.close(),
+  };
+}
+// </transport>
 </script>
 </body>
 </html>
