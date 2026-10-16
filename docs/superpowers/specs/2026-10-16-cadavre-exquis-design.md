@@ -19,7 +19,7 @@ Nobody sees others' answers while playing, so players answer all 9 questions at 
 - WebRTC mesh via Trystero (ES module from CDN, public relay signaling). Room id = URL hash.
 - Messages: `roster` (start), `answer` (player id, question index, text), `hello` (on peer join: sender replies with roster if started and all its own answers so far).
 - Player identity: random ID in `localStorage`; answers also persisted in `localStorage` keyed by room. Reload/rejoin keeps slot and resumes at first unanswered question.
-- Roster/answer state is merged idempotently (last write per (player, question) wins; first roster received wins).
+- Roster/answer state is merged idempotently (last write per (player, question) wins; rosters merge as a sorted union, so a late or simultaneous Start never evicts a player).
 
 ## Structure
 Single `index.html` with inline CSS/JS. Pure function `assemble(roster, answers, p)` kept separate in the script (and tested via a small node script) so assembly logic is verifiable without networking.
