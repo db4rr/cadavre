@@ -4,8 +4,8 @@ import { readFileSync } from 'node:fs';
 
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const code = html.split('// <core>')[1].split('// </core>')[0];
-const { QUESTIONS, assemble, mergeAnswer, mergeRoster, nextQuestion, allDone, reduce, startRoster, viewKey } =
-  new Function(code + '; return {QUESTIONS, assemble, mergeAnswer, mergeRoster, nextQuestion, allDone, reduce, startRoster, viewKey}')();
+const { QUESTIONS, assemble, mergeAnswer, mergeRoster, nextQuestion, allDone, reduce, startRoster, viewKey, slideConfirmed } =
+  new Function(code + '; return {QUESTIONS, assemble, mergeAnswer, mergeRoster, nextQuestion, allDone, reduce, startRoster, viewKey, slideConfirmed}')();
 
 const full = (id) => Array.from({ length: 9 }, (_, q) => id + q);
 const answersFor = (ids) => Object.fromEntries(ids.map((id) => [id, full(id)]));
@@ -119,4 +119,16 @@ test('viewKey identifies the screen so typing is not wiped by unrelated updates'
   assert.equal(viewKey({ ...started, answers: { me: full('me') } }, false), 'wait');
   assert.equal(viewKey({ ...started, answers: { me: full('me') } }, true), 'story');
   assert.equal(viewKey({ ...started, answers: answersFor(['me', 'b']) }, false), 'story');
+});
+
+test('slideConfirmed needs the knob dragged at least 90% of the way', () => {
+  assert.equal(slideConfirmed(0, 100), false);
+  assert.equal(slideConfirmed(89, 100), false);
+  assert.equal(slideConfirmed(90, 100), true);
+  assert.equal(slideConfirmed(100, 100), true);
+});
+
+test('slideConfirmed is false when the track has no travel', () => {
+  assert.equal(slideConfirmed(0, 0), false);
+  assert.equal(slideConfirmed(5, -1), false);
 });

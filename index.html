@@ -13,6 +13,11 @@
   .q { font-size: 2rem; margin: .5rem 0 1rem; }
   input[type=text] { width: 100%; box-sizing: border-box; font: inherit; padding: .5rem 0; border: 0; border-bottom: 2px solid currentColor; background: transparent; color: inherit; outline: none; }
   button { font: inherit; margin-top: 1.5rem; padding: .4rem 1.2rem; cursor: pointer; }
+  .slider { position: relative; height: 3rem; margin-top: 1.5rem; border-radius: 1.5rem; background: rgba(128, 128, 128, .25); overflow: hidden; user-select: none; -webkit-user-select: none; }
+  .slider.off { opacity: .35; pointer-events: none; }
+  .slider-label { position: absolute; inset: 0; display: grid; place-items: center; font-size: .9rem; letter-spacing: .1em; text-transform: uppercase; pointer-events: none; }
+  .knob { position: absolute; top: .25rem; left: .25rem; width: 2.5rem; height: 2.5rem; border-radius: 50%; display: grid; place-items: center; background: CanvasText; color: Canvas; cursor: grab; touch-action: none; transition: transform .2s; }
+  .knob.drag { transition: none; cursor: grabbing; }
   .linkrow { display: flex; align-items: center; gap: .6rem; margin: 1rem 0; }
   .link { flex: 0 1 auto; min-width: 0; margin: 0; font-size: .8rem; opacity: .6; word-break: break-all; cursor: pointer; }
   .linkrow button { flex: none; margin: 0; padding: .15rem .6rem; font-size: .8rem; }
@@ -76,6 +81,10 @@ function viewKey(state, forceReveal) {
 
 function startRoster(state) {
   return [...state.known].sort();
+}
+
+function slideConfirmed(pos, max) {
+  return max > 0 && pos / max >= 0.9;
 }
 // </core>
 
@@ -203,6 +212,42 @@ function render(force = false) {
   renderQuestion(Number(key.slice(1)));
 }
 
+function slider(label, onConfirm) {
+  const labelEl = el('span', { className: 'slider-label' }, label);
+  const knob = el('div', { className: 'knob' }, '›');
+  const node = el('div', { className: 'slider' }, labelEl, knob);
+  let startX = 0, max = 0, pos = 0, done = false;
+  const move = (x) => {
+    pos = Math.min(Math.max(x - startX, 0), max);
+    knob.style.transform = `translateX(${pos}px)`;
+    labelEl.style.opacity = 1 - pos / max;
+  };
+  const onMove = (e) => move(e.clientX);
+  const onUp = () => {
+    removeEventListener('pointermove', onMove);
+    removeEventListener('pointerup', onUp);
+    removeEventListener('pointercancel', onUp);
+    knob.classList.remove('drag');
+    if (slideConfirmed(pos, max)) {
+      done = true;
+      move(startX + max);
+      onConfirm();
+    } else {
+      move(startX);
+    }
+  };
+  knob.onpointerdown = (e) => {
+    if (done) return;
+    knob.classList.add('drag');
+    max = node.clientWidth - knob.offsetWidth - 2 * knob.offsetLeft;
+    startX = e.clientX;
+    addEventListener('pointermove', onMove);
+    addEventListener('pointerup', onUp);
+    addEventListener('pointercancel', onUp);
+  };
+  return { node, setDisabled: (off) => node.classList.toggle('off', off) };
+}
+
 function renderLobby() {
   const copy = async () => {
     try {
@@ -216,21 +261,19 @@ function renderLobby() {
   };
   const link = el('p', { className: 'link', title: 'Click to copy', onclick: copy }, location.href);
   const copyBtn = el('button', { onclick: copy }, copied ? 'Copied ✓' : 'Copy');
-  const start = el('button', { onclick: () => broadcast('roster', { roster: startRoster(state) }) }, 'Start');
+  const start = slider('Slide to start', () => broadcast('roster', { roster: startRoster(state) })).node;
   app.append(el('p', {}, 'Share this link, then start when everyone is here.'), el('div', { className: 'linkrow' }, link, copyBtn), el('p', {}, `${state.known.length} player${state.known.length === 1 ? '' : 's'} here`), start);
 }
 
 function renderQuestion(q) {
   const input = el('input', { type: 'text', autocomplete: 'off', maxLength: 300 });
-  const submit = el('button', { type: 'submit', disabled: true }, 'Submit');
-  input.oninput = () => (submit.disabled = !input.value.trim());
-  const form = el('form', {}, input, submit);
-  form.onsubmit = (e) => {
-    e.preventDefault();
+  const submit = slider('Slide to submit', () => {
     const text = input.value.trim();
     if (text) broadcast('answer', { playerId, q, text });
-  };
-  app.append(...QUESTIONS.slice(0, q).map((t) => el('p', { className: 'done' }, t)), el('p', { className: 'q' }, QUESTIONS[q]), form);
+  });
+  submit.setDisabled(true);
+  input.oninput = () => submit.setDisabled(!input.value.trim());
+  app.append(...QUESTIONS.slice(0, q).map((t) => el('p', { className: 'done' }, t)), el('p', { className: 'q' }, QUESTIONS[q]), input, submit.node);
   input.focus();
 }
 
