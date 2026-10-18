@@ -92,7 +92,7 @@ async function connect(roomId, local) {
   };
 
   if (!local) {
-    const { joinRoom } = await import('https://esm.run/trystero@0.26.0');
+    const { joinRoom } = await import('https://esm.run/trystero@0.26.0/nostr');
     const room = joinRoom({ appId: 'cadavre-exquis-dbarr' }, roomId);
     const action = room.makeAction('msg');
     room.onPeerJoin = (peerId) => emit(joinHandlers, peerId);
