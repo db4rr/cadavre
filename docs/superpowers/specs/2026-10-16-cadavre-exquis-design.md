@@ -16,10 +16,13 @@ Nobody sees others' answers while playing, so players answer all 9 questions at 
 4. **Reveal**: player at roster index `p` reads story `S_p` = for k in 1..9, the answer to question k by roster[(p+k-1) mod N]. Missing answers render as "…". With N<9 players, rotation wraps (a player supplies several lines of one story). N=1 works (all own answers).
 
 ## Networking
-- WebRTC mesh via Trystero (ES module from CDN, public relay signaling). Room id = URL hash.
-- Messages: `roster` (start), `answer` (player id, question index, text), `hello` (on peer join: sender replies with roster if started and all its own answers so far).
-- Player identity: random ID in `localStorage`; answers also persisted in `localStorage` keyed by room. Reload/rejoin keeps slot and resumes at first unanswered question.
-- Roster/answer state is merged idempotently (last write per (player, question) wins; rosters merge as a sorted union, so a late or simultaneous Start never evicts a player).
+WebRTC (Trystero) was dropped: phones in iOS Lockdown Mode / on some mobile networks never discovered peers. Messages now travel through free public MQTT brokers over secure WebSockets, with no server of our own.
+- Brokers (all connected at once, every message published to all, duplicates dropped by message id): HiveMQ `wss://broker.hivemq.com:8884/mqtt`, Mosquitto `wss://test.mosquitto.org:8081`, EMQX `wss://broker.emqx.io:8084/mqtt`. mqtt.js 5.16.1 loaded from jsDelivr with an SRI hash.
+- Topic = `cadavre/` + hash of the room code. Every message is AES-GCM encrypted with a key derived (PBKDF2) from the room code, which only lives in the URL hash, so brokers see ciphertext only.
+- Presence is a `ping`/`bye` layer on top (same as the offline `?local` BroadcastChannel transport): join on ping, reply once, rejoin pings re-trigger state resend.
+- App messages: `hello`, `roster` (start), `answer`; on peer join each side resends hello, roster and all answers it knows. Roster/answer state is merged idempotently.
+- Player identity: random ID in `localStorage` (separated per `window.name` when set); answers persisted per room.
+- The lobby shows "Connected to X of Y relays" so connection problems are visible.
 
 ## Structure
 Single `index.html` with inline CSS/JS. Pure function `assemble(roster, answers, p)` kept separate in the script (and tested via a small node script) so assembly logic is verifiable without networking.
@@ -28,4 +31,4 @@ Single `index.html` with inline CSS/JS. Pure function `assemble(roster, answers,
 Names, accounts, chat, anti-cheat/privacy of answers in devtools, i18n.
 
 ## Risks
-Third-party relay/CDN availability; networks blocking WebRTC. Multi-device networking verified only by manual trial.
+Public brokers are best-effort (no SLA, may rate-limit); networks blocking the broker ports; Lockdown Mode behaviour untested on a real device. Multi-device networking verified only by manual trial.

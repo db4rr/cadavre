@@ -18,6 +18,7 @@
   .slider-label { position: absolute; inset: 0; display: grid; place-items: center; font-size: .9rem; letter-spacing: .1em; text-transform: uppercase; pointer-events: none; }
   .knob { position: absolute; top: .25rem; left: .25rem; width: 2.5rem; height: 2.5rem; border-radius: 50%; display: grid; place-items: center; background: CanvasText; color: Canvas; cursor: grab; touch-action: none; transition: transform .2s; }
   .knob.drag { transition: none; cursor: grabbing; }
+  .relays { font-size: .75rem; opacity: .45; margin-top: 1.5rem; }
   .linkrow { display: flex; align-items: center; gap: .6rem; margin: 1rem 0; }
   .link { flex: 0 1 auto; min-width: 0; margin: 0; font-size: .8rem; opacity: .6; word-break: break-all; cursor: pointer; }
   .linkrow button { flex: none; margin: 0; padding: .15rem .6rem; font-size: .8rem; }
@@ -88,37 +89,60 @@ function slideConfirmed(pos, max) {
 }
 // </core>
 
+// <crypto>
+const textEnc = new TextEncoder();
+const toB64 = (bytes) => btoa(String.fromCharCode(...bytes));
+const fromB64 = (str) => Uint8Array.from(atob(str), (c) => c.charCodeAt(0));
+
+async function deriveRoom(roomId) {
+  const material = await crypto.subtle.importKey('raw', textEnc.encode(roomId), 'PBKDF2', false, ['deriveKey']);
+  const key = await crypto.subtle.deriveKey(
+    { name: 'PBKDF2', hash: 'SHA-256', salt: textEnc.encode('cadavre-exquis-v1'), iterations: 100000 },
+    material, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', textEnc.encode('topic:' + roomId)));
+  const topic = 'cadavre/' + [...digest.slice(0, 12)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  return { topic, key };
+}
+
+async function seal(key, obj) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, textEnc.encode(JSON.stringify(obj))));
+  return toB64([...iv, ...ct]);
+}
+
+async function open(key, str) {
+  try {
+    const bytes = fromB64(str);
+    const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytes.slice(0, 12) }, key, bytes.slice(12));
+    return JSON.parse(new TextDecoder().decode(plain));
+  } catch {
+    return null;
+  }
+}
+// </crypto>
+
 // <transport>
-async function connect(roomId, local) {
+const BROKERS = ['wss://broker.hivemq.com:8884/mqtt', 'wss://test.mosquitto.org:8081', 'wss://broker.emqx.io:8084/mqtt'];
+const MQTT_SRC = 'https://cdn.jsdelivr.net/npm/mqtt@5.16.1/dist/mqtt.min.js';
+const MQTT_SRI = 'sha384-ilRYg/zm2XqUafLvBoGVk40UfNRnvUkYMy+e/JPo4YgsFR6X9Q3jYEkqFQXquX4r';
+
+// raw: { send(obj), close(), onmessage(obj), onopen(again), onstatus({up, total}) }; send may be async.
+function makeBus(raw) {
   const msgHandlers = [];
   const joinHandlers = [];
   const leaveHandlers = [];
+  const statusHandlers = [];
   const emit = (list, ...args) => list.forEach((fn) => fn(...args));
-  const api = {
-    onMessage: (fn) => msgHandlers.push(fn),
-    onPeerJoin: (fn) => joinHandlers.push(fn),
-    onPeerLeave: (fn) => leaveHandlers.push(fn),
-  };
-
-  if (!local) {
-    const { joinRoom } = await import('https://esm.run/trystero@0.26.0/nostr');
-    const room = joinRoom({ appId: 'cadavre-exquis-dbarr' }, roomId);
-    const action = room.makeAction('msg');
-    room.onPeerJoin = (peerId) => emit(joinHandlers, peerId);
-    room.onPeerLeave = (peerId) => emit(leaveHandlers, peerId);
-    action.onMessage = (m, { peerId }) => emit(msgHandlers, m.type, m.data, peerId);
-    return { ...api, send: (type, data) => action.send({ type, data }), close: () => room.leave() };
-  }
-
   const me = Math.random().toString(36).slice(2);
   const known = new Set();
-  const channel = new BroadcastChannel('cadavre-' + roomId);
-  channel.onmessage = ({ data: m }) => {
+
+  raw.onmessage = (m) => {
+    if (m.from === me) return;
     if (m.kind === 'ping') {
-      if (!known.has(m.from)) {
+      if (!known.has(m.from) || m.rejoin) {
         known.add(m.from);
         emit(joinHandlers, m.from);
-        if (!m.reply) channel.postMessage({ kind: 'ping', reply: true, from: me });
+        if (!m.reply) raw.send({ kind: 'ping', reply: true, from: me });
       }
     } else if (m.kind === 'bye') {
       known.delete(m.from);
@@ -127,15 +151,89 @@ async function connect(roomId, local) {
       emit(msgHandlers, m.type, m.data, m.from);
     }
   };
-  channel.postMessage({ kind: 'ping', from: me });
+  raw.onopen = (again) => raw.send({ kind: 'ping', from: me, rejoin: !!again });
+  raw.onstatus = (status) => emit(statusHandlers, status);
+
   return {
-    ...api,
-    send: (type, data) => channel.postMessage({ kind: 'msg', type, data, from: me }),
-    close: () => {
-      channel.postMessage({ kind: 'bye', from: me });
-      channel.close();
+    onMessage: (fn) => msgHandlers.push(fn),
+    onPeerJoin: (fn) => joinHandlers.push(fn),
+    onPeerLeave: (fn) => leaveHandlers.push(fn),
+    onStatus: (fn) => statusHandlers.push(fn),
+    send: (type, data) => raw.send({ kind: 'msg', type, data, from: me }),
+    close: async () => {
+      await raw.send({ kind: 'bye', from: me });
+      raw.close();
     },
   };
+}
+
+function connectLocal(roomId) {
+  const channel = new BroadcastChannel('cadavre-' + roomId);
+  const raw = { send: (m) => channel.postMessage(m), close: () => channel.close() };
+  channel.onmessage = ({ data }) => raw.onmessage(data);
+  const bus = makeBus(raw);
+  raw.onopen();
+  return bus;
+}
+
+async function connectRelay(roomId, urls, mqttConnect) {
+  const { topic, key } = await deriveRoom(roomId);
+  const seen = new Set();
+  const live = new Set();
+  const raw = {};
+  let everUp = false;
+
+  const clients = urls.map((url) => {
+    const client = mqttConnect(url, { reconnectPeriod: 3000, connectTimeout: 10000 });
+    const status = () => raw.onstatus?.({ up: live.size, total: urls.length });
+    const down = () => { live.delete(client); status(); };
+    client.on('connect', () => {
+      client.subscribe(topic, { qos: 1 }, (err) => {
+        if (err) return;
+        const wasDown = live.size === 0;
+        live.add(client);
+        status();
+        if (wasDown) { raw.onopen?.(everUp); everUp = true; }
+      });
+    });
+    client.on('close', down);
+    client.on('offline', down);
+    client.on('error', () => {});
+    client.on('message', async (_topic, payload) => {
+      const text = typeof payload === 'string' ? payload : new TextDecoder().decode(payload);
+      const env = await open(key, text);
+      if (!env || seen.has(env.id)) return;
+      seen.add(env.id);
+      raw.onmessage?.(env.body);
+    });
+    return client;
+  });
+
+  raw.send = async (body) => {
+    const id = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    seen.add(id);
+    const payload = await seal(key, { id, body });
+    for (const client of live) client.publish(topic, payload, { qos: 1 });
+  };
+  raw.close = () => clients.forEach((client) => client.end());
+  return makeBus(raw);
+}
+
+async function connect(roomId, local) {
+  if (local) return connectLocal(roomId);
+  if (!window.mqtt) {
+    await new Promise((resolve, reject) => {
+      const script = Object.assign(document.createElement('script'), {
+        src: MQTT_SRC,
+        integrity: MQTT_SRI,
+        crossOrigin: 'anonymous',
+        onload: resolve,
+        onerror: () => reject(new Error('mqtt.js failed to load')),
+      });
+      document.head.append(script);
+    });
+  }
+  return connectRelay(roomId, BROKERS, (url, opts) => window.mqtt.connect(url, opts));
 }
 // </transport>
 
@@ -147,11 +245,12 @@ const el = (tag, props = {}, ...kids) => {
 };
 
 const hash = location.hash.slice(1);
-if (!hash) location.hash = Math.random().toString(36).slice(2, 8);
+if (!hash) location.hash = [...crypto.getRandomValues(new Uint8Array(10))].map((b) => (b % 36).toString(36)).join('');
 const [roomId, flags] = (location.hash.slice(1)).split('?');
 const local = flags === 'local';
 const storeKey = 'cadavre:' + roomId;
-const idKey = 'cadavre:id' + (local ? ':' + (window.name || (window.name = Math.random().toString(36).slice(2))) : '');
+if (local && !window.name) window.name = Math.random().toString(36).slice(2);
+const idKey = 'cadavre:id' + (window.name ? ':' + window.name : '');
 const playerId = localStorage[idKey] || (localStorage[idKey] = Math.random().toString(36).slice(2, 10));
 
 const saved = JSON.parse(localStorage[storeKey] || '{}');
@@ -170,6 +269,7 @@ addEventListener('pagehide', () => net.close());
 const peerPlayer = {};
 let lastKey = null;
 let copied = false;
+let relays = null;
 
 function update(type, data) {
   state = reduce(state, type, data);
@@ -197,6 +297,10 @@ net.onPeerJoin(() => {
   for (const [id, lines] of Object.entries(state.answers)) {
     lines.forEach((text, q) => text && net.send('answer', { playerId: id, q, text }));
   }
+});
+net.onStatus((status) => {
+  relays = status;
+  if (lastKey === 'lobby') render();
 });
 net.send('hello', { playerId });
 
@@ -262,7 +366,7 @@ function renderLobby() {
   const link = el('p', { className: 'link', title: 'Click to copy', onclick: copy }, location.href);
   const copyBtn = el('button', { onclick: copy }, copied ? 'Copied ✓' : 'Copy');
   const start = slider('Slide to start', () => broadcast('roster', { roster: startRoster(state) })).node;
-  app.append(el('p', {}, 'Share this link, then start when everyone is here.'), el('div', { className: 'linkrow' }, link, copyBtn), el('p', {}, `${state.known.length} player${state.known.length === 1 ? '' : 's'} here`), start);
+  app.append(el('p', {}, 'Share this link, then start when everyone is here.'), el('div', { className: 'linkrow' }, link, copyBtn), el('p', {}, `${state.known.length} player${state.known.length === 1 ? '' : 's'} here`), start, ...(relays ? [el('p', { className: 'relays' }, relays.up ? `Connected to ${relays.up} of ${relays.total} relays` : 'Connecting to relays…')] : []));
 }
 
 function renderQuestion(q) {
