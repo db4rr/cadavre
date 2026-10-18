@@ -20,6 +20,8 @@
   .knob { position: absolute; top: .25rem; left: .25rem; width: 2.5rem; height: 2.5rem; border-radius: 50%; display: grid; place-items: center; background: CanvasText; color: Canvas; cursor: grab; touch-action: none; transition: transform .2s; }
   .knob.drag { transition: none; cursor: grabbing; }
   .relays { font-size: .75rem; opacity: .45; margin-top: 1.5rem; }
+  .actions { display: flex; gap: .75rem; margin-top: 1.5rem; }
+  .actions button { margin-top: 0; }
   .linkrow { display: flex; align-items: center; gap: .6rem; margin: 1rem 0; }
   .link { flex: 0 1 auto; min-width: 0; margin: 0; font-size: .8rem; opacity: .6; word-break: break-all; cursor: pointer; }
   .linkrow button { flex: none; margin: 0; padding: .15rem .6rem; font-size: .8rem; }
@@ -101,6 +103,10 @@ function slideConfirmed(pos, max) {
 
 function isConfirmKey(e) {
   return e.key === 'Enter' && e.shiftKey;
+}
+
+function newRoomCode() {
+  return [...crypto.getRandomValues(new Uint8Array(10))].map((b) => (b % 36).toString(36)).join('');
 }
 // </core>
 
@@ -260,7 +266,7 @@ const el = (tag, props = {}, ...kids) => {
 };
 
 const hash = location.hash.slice(1);
-if (!hash) location.hash = [...crypto.getRandomValues(new Uint8Array(10))].map((b) => (b % 36).toString(36)).join('');
+if (!hash) location.hash = newRoomCode();
 const [roomId, flags] = (location.hash.slice(1)).split('?');
 const local = flags === 'local';
 const storeKey = 'cadavre:' + roomId;
@@ -440,7 +446,12 @@ function renderStory() {
   const lines = assemble(state.roster, state.answers, state.roster.indexOf(playerId));
   const text = formatStory(lines);
   const story = el('p', { className: 'story' }, text);
-  app.append(story, el('button', { onclick: () => copyText(text, 'story', story) }, copied === 'story' ? 'Copied ✓' : 'Copy story'));
+  const copyBtn = el('button', { onclick: () => copyText(text, 'story', story) }, copied === 'story' ? 'Copied ✓' : 'Copy');
+  const newGame = el('button', { onclick: () => {
+    location.hash = newRoomCode() + (local ? '?local' : '');
+    location.reload();
+  } }, 'New game');
+  app.append(story, el('div', { className: 'actions' }, copyBtn, newGame));
 }
 
 render();

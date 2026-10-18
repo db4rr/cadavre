@@ -16,7 +16,7 @@ Nobody sees others' answers while playing, so players answer all 9 questions at 
 4. **Reveal**: player at roster index `p` reads story `S_p` = for k in 1..9, the answer to question k by roster[(p+k-1) mod N]. Missing answers render as "…". With N<9 players, rotation wraps (a player supplies several lines of one story). N=1 works (all own answers).
 
 ## Controls
-Start and Submit are slide-to-confirm sliders (90% of travel); Submit is disabled while the answer is blank. Shift+Enter triggers the same action from a keyboard; plain Enter does nothing. The reveal and the lobby link each have a copy-to-clipboard button with "Copied ✓" feedback.
+Start and Submit are slide-to-confirm sliders (90% of travel); Submit is disabled while the answer is blank. Shift+Enter triggers the same action from a keyboard; plain Enter does nothing. The reveal and the lobby link each have a "Copy" button with "Copied ✓" feedback; the reveal also has "New game", which reloads into a fresh random room (keeping `?local`).
 
 ## Text rules
 Answers are cleaned (`\s+` runs, including line breaks, become one space; trimmed; blank answers ignored) both when submitted and when received from peers. The reveal puts each line on its own row with the first letter capitalised (missing lines stay "…"); Copy story copies that exact text. Layout uses `100dvh` and `overscroll-behavior: none` so phones don't show an extra scroll area.

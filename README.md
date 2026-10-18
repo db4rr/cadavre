@@ -7,7 +7,7 @@ A tiny multiplayer cadavre exquis for friends playing at the same time. One stat
 1. Open the page. You get a room link (`…/#abc123`); copy it with the **Copy** button next to it and share it with everyone.
 2. When everyone is in the lobby (it shows how many players are here), anyone slides **Slide to start**.
 3. Answer the nine questions one by one: type your answer, then slide **Slide to submit**. Nobody sees anyone else's answers.
-4. When everybody has finished, you read the story that started with your first answer, one answer per line, each starting with a capital letter. **Copy story** puts it on your clipboard (with the line breaks) so you can share it.
+4. When everybody has finished, you read the story that started with your first answer, one answer per line, each starting with a capital letter. **Copy** puts it on your clipboard (with the line breaks) so you can share it, and **New game** takes you to a fresh room (share its link to play again).
 
 Each story is built by rotating answers around the group: line `k` of your story is the answer to question `k` from the player `k` places after you (wrapping around when there are fewer than nine players).
 
@@ -21,7 +21,7 @@ Each story is built by rotating answers around the group: line `k` of your story
 
 - Reloading the page (or coming back to the tab) resumes where you were: your answers are kept in the browser, and other players resend what you missed.
 - If someone drops out after the game started, the others see "Waiting for N others…" with a **Reveal anyway** button; the missing player's lines show as "…".
-- Opening the link after the game has started shows "This game has already started"; open a new room to play again.
+- Opening the link after the game has started shows "This game has already started"; open a new room (or press **New game** on the story screen) to play again.
 
 ## Host on GitHub Pages
 

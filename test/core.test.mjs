@@ -4,8 +4,8 @@ import { readFileSync } from 'node:fs';
 
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const code = html.split('// <core>')[1].split('// </core>')[0];
-const { QUESTIONS, assemble, mergeAnswer, mergeRoster, nextQuestion, allDone, reduce, startRoster, viewKey, slideConfirmed, isConfirmKey, cleanAnswer, formatStory } =
-  new Function(code + '; return {QUESTIONS, assemble, mergeAnswer, mergeRoster, nextQuestion, allDone, reduce, startRoster, viewKey, slideConfirmed, isConfirmKey, cleanAnswer, formatStory}')();
+const { QUESTIONS, assemble, mergeAnswer, mergeRoster, nextQuestion, allDone, reduce, startRoster, viewKey, slideConfirmed, isConfirmKey, cleanAnswer, formatStory, newRoomCode } =
+  new Function(code + '; return {QUESTIONS, assemble, mergeAnswer, mergeRoster, nextQuestion, allDone, reduce, startRoster, viewKey, slideConfirmed, isConfirmKey, cleanAnswer, formatStory, newRoomCode}')();
 
 const full = (id) => Array.from({ length: 9 }, (_, q) => id + q);
 const answersFor = (ids) => Object.fromEntries(ids.map((id) => [id, full(id)]));
@@ -156,4 +156,10 @@ test('mergeAnswer stores the cleaned text and ignores blank answers', () => {
 test('formatStory puts each line on its own row with the first letter capitalised', () => {
   assert.equal(formatStory(['le chat', 'élan', '…', '1st', 'ça va']), 'Le chat\nÉlan\n…\n1st\nÇa va');
   assert.equal(formatStory(['iPhone']), 'IPhone');
+});
+
+test('newRoomCode is 10 lowercase alphanumerics and differs each call', () => {
+  const a = newRoomCode();
+  assert.match(a, /^[0-9a-z]{10}$/);
+  assert.notEqual(a, newRoomCode());
 });
