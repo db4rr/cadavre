@@ -15,6 +15,9 @@ Nobody sees others' answers while playing, so players answer all 9 questions at 
 3. **Waiting**: after Q9, "waiting for N others…". A "reveal anyway" button is available.
 4. **Reveal**: player at roster index `p` reads story `S_p` = for k in 1..9, the answer to question k by roster[(p+k-1) mod N]. Missing answers render as "…". With N<9 players, rotation wraps (a player supplies several lines of one story). N=1 works (all own answers).
 
+## Controls
+Start and Submit are slide-to-confirm sliders (90% of travel); Submit is disabled while the answer is blank. Shift+Enter triggers the same action from a keyboard; plain Enter does nothing. The reveal and the lobby link each have a copy-to-clipboard button with "Copied ✓" feedback.
+
 ## Networking
 WebRTC (Trystero) was dropped: phones in iOS Lockdown Mode / on some mobile networks never discovered peers. Messages now travel through free public MQTT brokers over secure WebSockets, with no server of our own.
 - Brokers (all connected at once, every message published to all, duplicates dropped by message id): HiveMQ `wss://broker.hivemq.com:8884/mqtt`, Mosquitto `wss://test.mosquitto.org:8081`, EMQX `wss://broker.emqx.io:8084/mqtt`. mqtt.js 5.16.1 loaded from jsDelivr with an SRI hash.

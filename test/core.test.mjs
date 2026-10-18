@@ -4,8 +4,8 @@ import { readFileSync } from 'node:fs';
 
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const code = html.split('// <core>')[1].split('// </core>')[0];
-const { QUESTIONS, assemble, mergeAnswer, mergeRoster, nextQuestion, allDone, reduce, startRoster, viewKey, slideConfirmed } =
-  new Function(code + '; return {QUESTIONS, assemble, mergeAnswer, mergeRoster, nextQuestion, allDone, reduce, startRoster, viewKey, slideConfirmed}')();
+const { QUESTIONS, assemble, mergeAnswer, mergeRoster, nextQuestion, allDone, reduce, startRoster, viewKey, slideConfirmed, isConfirmKey } =
+  new Function(code + '; return {QUESTIONS, assemble, mergeAnswer, mergeRoster, nextQuestion, allDone, reduce, startRoster, viewKey, slideConfirmed, isConfirmKey}')();
 
 const full = (id) => Array.from({ length: 9 }, (_, q) => id + q);
 const answersFor = (ids) => Object.fromEntries(ids.map((id) => [id, full(id)]));
@@ -131,4 +131,10 @@ test('slideConfirmed needs the knob dragged at least 90% of the way', () => {
 test('slideConfirmed is false when the track has no travel', () => {
   assert.equal(slideConfirmed(0, 0), false);
   assert.equal(slideConfirmed(5, -1), false);
+});
+
+test('isConfirmKey is Shift+Enter only, so a plain Enter never submits', () => {
+  assert.equal(isConfirmKey({ key: 'Enter', shiftKey: true }), true);
+  assert.equal(isConfirmKey({ key: 'Enter', shiftKey: false }), false);
+  assert.equal(isConfirmKey({ key: 'a', shiftKey: true }), false);
 });

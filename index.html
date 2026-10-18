@@ -87,6 +87,10 @@ function startRoster(state) {
 function slideConfirmed(pos, max) {
   return max > 0 && pos / max >= 0.9;
 }
+
+function isConfirmKey(e) {
+  return e.key === 'Enter' && e.shiftKey;
+}
 // </core>
 
 // <crypto>
@@ -268,7 +272,8 @@ try {
 addEventListener('pagehide', () => net.close());
 const peerPlayer = {};
 let lastKey = null;
-let copied = false;
+let copied = null;
+let confirmAction = null;
 let relays = null;
 
 function update(type, data) {
@@ -304,10 +309,34 @@ net.onStatus((status) => {
 });
 net.send('hello', { playerId });
 
+addEventListener('keydown', (e) => {
+  if (isConfirmKey(e) && confirmAction) {
+    e.preventDefault();
+    confirmAction();
+  }
+});
+
+async function copyText(text, which, fallbackEl) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    getSelection().selectAllChildren(fallbackEl);
+    return;
+  }
+  const key = lastKey;
+  copied = which;
+  render(true);
+  setTimeout(() => {
+    copied = null;
+    if (lastKey === key) render(true);
+  }, 1500);
+}
+
 function render(force = false) {
   const key = viewKey(state, forceReveal);
   if (key === lastKey && key.startsWith('q') && !force) return;
   lastKey = key;
+  confirmAction = null;
   app.replaceChildren(el('h1', {}, 'Cadavre exquis'));
   if (key === 'lobby') return renderLobby();
   if (key === 'closed') return app.append(el('p', {}, 'This game has already started. Open a new room to play.'));
@@ -320,7 +349,7 @@ function slider(label, onConfirm) {
   const labelEl = el('span', { className: 'slider-label' }, label);
   const knob = el('div', { className: 'knob' }, '›');
   const node = el('div', { className: 'slider' }, labelEl, knob);
-  let startX = 0, max = 0, pos = 0, done = false;
+  let startX = 0, max = 0, pos = 0, done = false, disabled = false;
   const move = (x) => {
     pos = Math.min(Math.max(x - startX, 0), max);
     knob.style.transform = `translateX(${pos}px)`;
@@ -349,24 +378,30 @@ function slider(label, onConfirm) {
     addEventListener('pointerup', onUp);
     addEventListener('pointercancel', onUp);
   };
-  return { node, setDisabled: (off) => node.classList.toggle('off', off) };
+  return {
+    node,
+    setDisabled: (off) => {
+      disabled = off;
+      node.classList.toggle('off', off);
+    },
+    confirm: () => {
+      if (done || disabled) return;
+      done = true;
+      startX = 0;
+      max = node.clientWidth - knob.offsetWidth - 2 * knob.offsetLeft;
+      move(max);
+      onConfirm();
+    },
+  };
 }
 
 function renderLobby() {
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(location.href);
-      copied = true;
-    } catch {
-      getSelection().selectAllChildren(link);
-    }
-    render(true);
-    setTimeout(() => { copied = false; render(true); }, 1500);
-  };
+  const copy = () => copyText(location.href, 'link', link);
   const link = el('p', { className: 'link', title: 'Click to copy', onclick: copy }, location.href);
-  const copyBtn = el('button', { onclick: copy }, copied ? 'Copied ✓' : 'Copy');
-  const start = slider('Slide to start', () => broadcast('roster', { roster: startRoster(state) })).node;
-  app.append(el('p', {}, 'Share this link, then start when everyone is here.'), el('div', { className: 'linkrow' }, link, copyBtn), el('p', {}, `${state.known.length} player${state.known.length === 1 ? '' : 's'} here`), start, ...(relays ? [el('p', { className: 'relays' }, relays.up ? `Connected to ${relays.up} of ${relays.total} relays` : 'Connecting to relays…')] : []));
+  const copyBtn = el('button', { onclick: copy }, copied === 'link' ? 'Copied ✓' : 'Copy');
+  const start = slider('Slide to start', () => broadcast('roster', { roster: startRoster(state) }));
+  confirmAction = start.confirm;
+  app.append(el('p', {}, 'Share this link, then start when everyone is here.'), el('div', { className: 'linkrow' }, link, copyBtn), el('p', {}, `${state.known.length} player${state.known.length === 1 ? '' : 's'} here`), start.node, ...(relays ? [el('p', { className: 'relays' }, relays.up ? `Connected to ${relays.up} of ${relays.total} relays` : 'Connecting to relays…')] : []));
 }
 
 function renderQuestion(q) {
@@ -376,6 +411,7 @@ function renderQuestion(q) {
     if (text) broadcast('answer', { playerId, q, text });
   });
   submit.setDisabled(true);
+  confirmAction = submit.confirm;
   input.oninput = () => submit.setDisabled(!input.value.trim());
   app.append(...QUESTIONS.slice(0, q).map((t) => el('p', { className: 'done' }, t)), el('p', { className: 'q' }, QUESTIONS[q]), input, submit.node);
   input.focus();
@@ -391,7 +427,9 @@ function renderWaiting() {
 
 function renderStory() {
   const lines = assemble(state.roster, state.answers, state.roster.indexOf(playerId));
-  app.append(el('p', { className: 'story' }, lines.join(' ')));
+  const text = lines.join(' ');
+  const story = el('p', { className: 'story' }, text);
+  app.append(story, el('button', { onclick: () => copyText(text, 'story', story) }, copied === 'story' ? 'Copied ✓' : 'Copy story'));
 }
 
 render();
