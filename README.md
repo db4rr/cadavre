@@ -7,7 +7,7 @@ A tiny multiplayer cadavre exquis for friends playing at the same time. One stat
 1. Open the page. You get a room link (`…/#abc123`); copy it with the **Copy** button next to it and share it with everyone.
 2. When everyone is in the lobby (it shows how many players are here), anyone slides **Slide to start**.
 3. Answer the nine questions one by one: type your answer, then slide **Slide to submit**. Nobody sees anyone else's answers.
-4. When everybody has finished, you read the story that started with your first answer. **Copy story** puts it on your clipboard so you can share it.
+4. When everybody has finished, you read the story that started with your first answer, one answer per line, each starting with a capital letter. **Copy story** puts it on your clipboard (with the line breaks) so you can share it.
 
 Each story is built by rotating answers around the group: line `k` of your story is the answer to question `k` from the player `k` places after you (wrapping around when there are fewer than nine players).
 
@@ -15,7 +15,7 @@ Each story is built by rotating answers around the group: line `k` of your story
 
 - Start and Submit are sliders, to avoid accidental taps: drag the knob (almost) all the way across.
 - With a physical keyboard, **Shift+Enter** does the same as the slider (start the game, submit your answer). A plain Enter does nothing, on purpose.
-- The Submit slider stays dimmed until you've typed something.
+- The Submit slider stays dimmed until you've typed something. Answers are trimmed and any line breaks or runs of spaces become a single space, so an answer is always one line.
 
 ### If something goes wrong
 

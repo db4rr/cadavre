@@ -4,8 +4,8 @@ import { readFileSync } from 'node:fs';
 
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const code = html.split('// <core>')[1].split('// </core>')[0];
-const { QUESTIONS, assemble, mergeAnswer, mergeRoster, nextQuestion, allDone, reduce, startRoster, viewKey, slideConfirmed, isConfirmKey } =
-  new Function(code + '; return {QUESTIONS, assemble, mergeAnswer, mergeRoster, nextQuestion, allDone, reduce, startRoster, viewKey, slideConfirmed, isConfirmKey}')();
+const { QUESTIONS, assemble, mergeAnswer, mergeRoster, nextQuestion, allDone, reduce, startRoster, viewKey, slideConfirmed, isConfirmKey, cleanAnswer, formatStory } =
+  new Function(code + '; return {QUESTIONS, assemble, mergeAnswer, mergeRoster, nextQuestion, allDone, reduce, startRoster, viewKey, slideConfirmed, isConfirmKey, cleanAnswer, formatStory}')();
 
 const full = (id) => Array.from({ length: 9 }, (_, q) => id + q);
 const answersFor = (ids) => Object.fromEntries(ids.map((id) => [id, full(id)]));
@@ -137,4 +137,23 @@ test('isConfirmKey is Shift+Enter only, so a plain Enter never submits', () => {
   assert.equal(isConfirmKey({ key: 'Enter', shiftKey: true }), true);
   assert.equal(isConfirmKey({ key: 'Enter', shiftKey: false }), false);
   assert.equal(isConfirmKey({ key: 'a', shiftKey: true }), false);
+});
+
+test('cleanAnswer trims and turns any whitespace run, including line breaks, into one space', () => {
+  assert.equal(cleanAnswer('  hello \n world\r\n\t! '), 'hello world !');
+  assert.equal(cleanAnswer('a\u2028b\u2029c\u00a0d'), 'a b c d');
+  assert.equal(cleanAnswer('\n\n \t'), '');
+  assert.equal(cleanAnswer('plain'), 'plain');
+});
+
+test('mergeAnswer stores the cleaned text and ignores blank answers', () => {
+  const stored = mergeAnswer({}, 'a', 0, '  hi\nthere ');
+  assert.equal(stored.a[0], 'hi there');
+  const start = { a: ['x'] };
+  assert.equal(mergeAnswer(start, 'a', 1, ' \n '), start);
+});
+
+test('formatStory puts each line on its own row with the first letter capitalised', () => {
+  assert.equal(formatStory(['le chat', 'élan', '…', '1st', 'ça va']), 'Le chat\nÉlan\n…\n1st\nÇa va');
+  assert.equal(formatStory(['iPhone']), 'IPhone');
 });

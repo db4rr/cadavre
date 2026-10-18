@@ -6,7 +6,8 @@
 <title>Cadavre exquis</title>
 <style>
   :root { color-scheme: light dark; }
-  body { margin: 0; min-height: 100vh; display: grid; place-items: center; font: 20px/1.5 Georgia, 'Times New Roman', serif; }
+  html, body { overscroll-behavior: none; }
+  body { margin: 0; min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; font: 20px/1.5 Georgia, 'Times New Roman', serif; }
   main { width: min(36rem, 90vw); padding: 2rem 0; }
   h1 { font-size: 1rem; font-weight: normal; letter-spacing: .2em; text-transform: uppercase; opacity: .5; margin: 0 0 2rem; }
   .done { margin: 0; opacity: .3; }
@@ -22,7 +23,7 @@
   .linkrow { display: flex; align-items: center; gap: .6rem; margin: 1rem 0; }
   .link { flex: 0 1 auto; min-width: 0; margin: 0; font-size: .8rem; opacity: .6; word-break: break-all; cursor: pointer; }
   .linkrow button { flex: none; margin: 0; padding: .15rem .6rem; font-size: .8rem; }
-  .story { font-size: 1.5rem; line-height: 1.7; }
+  .story { font-size: 1.5rem; line-height: 1.7; white-space: pre-line; }
 </style>
 </head>
 <body>
@@ -36,9 +37,19 @@ function assemble(roster, answers, p) {
   return QUESTIONS.map((_, k) => answers[roster[(p + k) % n]]?.[k] || '…');
 }
 
+function cleanAnswer(text) {
+  return String(text).replace(/\s+/g, ' ').trim();
+}
+
+function formatStory(lines) {
+  return lines.map((line) => line.replace(/^\p{L}/u, (c) => c.toUpperCase())).join('\n');
+}
+
 function mergeAnswer(answers, playerId, q, text) {
+  const clean = cleanAnswer(text);
+  if (!clean) return answers;
   const prev = answers[playerId] || [];
-  const mine = QUESTIONS.map((_, i) => (i === q ? text : prev[i]));
+  const mine = QUESTIONS.map((_, i) => (i === q ? clean : prev[i]));
   return { ...answers, [playerId]: mine };
 }
 
@@ -407,12 +418,12 @@ function renderLobby() {
 function renderQuestion(q) {
   const input = el('input', { type: 'text', autocomplete: 'off', maxLength: 300 });
   const submit = slider('Slide to submit', () => {
-    const text = input.value.trim();
+    const text = cleanAnswer(input.value);
     if (text) broadcast('answer', { playerId, q, text });
   });
   submit.setDisabled(true);
   confirmAction = submit.confirm;
-  input.oninput = () => submit.setDisabled(!input.value.trim());
+  input.oninput = () => submit.setDisabled(!cleanAnswer(input.value));
   app.append(...QUESTIONS.slice(0, q).map((t) => el('p', { className: 'done' }, t)), el('p', { className: 'q' }, QUESTIONS[q]), input, submit.node);
   input.focus();
 }
@@ -427,7 +438,7 @@ function renderWaiting() {
 
 function renderStory() {
   const lines = assemble(state.roster, state.answers, state.roster.indexOf(playerId));
-  const text = lines.join(' ');
+  const text = formatStory(lines);
   const story = el('p', { className: 'story' }, text);
   app.append(story, el('button', { onclick: () => copyText(text, 'story', story) }, copied === 'story' ? 'Copied ✓' : 'Copy story'));
 }

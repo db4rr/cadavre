@@ -18,6 +18,9 @@ Nobody sees others' answers while playing, so players answer all 9 questions at 
 ## Controls
 Start and Submit are slide-to-confirm sliders (90% of travel); Submit is disabled while the answer is blank. Shift+Enter triggers the same action from a keyboard; plain Enter does nothing. The reveal and the lobby link each have a copy-to-clipboard button with "Copied ✓" feedback.
 
+## Text rules
+Answers are cleaned (`\s+` runs, including line breaks, become one space; trimmed; blank answers ignored) both when submitted and when received from peers. The reveal puts each line on its own row with the first letter capitalised (missing lines stay "…"); Copy story copies that exact text. Layout uses `100dvh` and `overscroll-behavior: none` so phones don't show an extra scroll area.
+
 ## Networking
 WebRTC (Trystero) was dropped: phones in iOS Lockdown Mode / on some mobile networks never discovered peers. Messages now travel through free public MQTT brokers over secure WebSockets, with no server of our own.
 - Brokers (all connected at once, every message published to all, duplicates dropped by message id): HiveMQ `wss://broker.hivemq.com:8884/mqtt`, Mosquitto `wss://test.mosquitto.org:8081`, EMQX `wss://broker.emqx.io:8084/mqtt`. mqtt.js 5.16.1 loaded from jsDelivr with an SRI hash.
