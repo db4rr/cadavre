@@ -4,8 +4,8 @@ import { readFileSync } from 'node:fs';
 
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const code = html.split('// <core>')[1].split('// </core>')[0];
-const { QUESTIONS, assemble, mergeAnswer, mergeRoster, nextQuestion, allDone, reduce, startRoster, viewKey, slideConfirmed, isConfirmKey, cleanAnswer, formatStory, newRoomCode } =
-  new Function(code + '; return {QUESTIONS, assemble, mergeAnswer, mergeRoster, nextQuestion, allDone, reduce, startRoster, viewKey, slideConfirmed, isConfirmKey, cleanAnswer, formatStory, newRoomCode}')();
+const { QUESTIONS, assemble, mergeAnswer, mergeRoster, nextQuestion, allDone, reduce, startRoster, viewKey, slideConfirmed, isConfirmKey, cleanAnswer, formatStory, newRoomCode, nextRound } =
+  new Function(code + '; return {QUESTIONS, assemble, mergeAnswer, mergeRoster, nextQuestion, allDone, reduce, startRoster, viewKey, slideConfirmed, isConfirmKey, cleanAnswer, formatStory, newRoomCode, nextRound}')();
 
 const full = (id) => Array.from({ length: 9 }, (_, q) => id + q);
 const answersFor = (ids) => Object.fromEntries(ids.map((id) => [id, full(id)]));
@@ -162,4 +162,44 @@ test('newRoomCode is 10 lowercase alphanumerics and differs each call', () => {
   const a = newRoomCode();
   assert.match(a, /^[0-9a-z]{10}$/);
   assert.notEqual(a, newRoomCode());
+});
+
+const inRound = (round, extra = {}) => ({ ...fresh(), round, ...extra });
+
+test('nextRound resets to an empty lobby one round later', () => {
+  const st = inRound(2, { known: ['me', 'b'], roster: ['b', 'me'], answers: { me: full('me') } });
+  assert.deepEqual(nextRound(st), { playerId: 'me', known: ['me'], roster: null, answers: {}, round: 3 });
+});
+
+test('reduce ignores messages from another round once the game has started', () => {
+  const started = inRound(1, { roster: ['a', 'me'] });
+  assert.equal(reduce(started, 'hello', { playerId: 'b', round: 0 }), started);
+  assert.equal(reduce(started, 'answer', { playerId: 'b', q: 0, text: 'x', round: 2 }), started);
+  assert.equal(reduce(started, 'roster', { roster: ['z'], round: 0 }), started);
+});
+
+test('messages without a round count as round 0', () => {
+  const st = reduce(inRound(0), 'hello', { playerId: 'b' });
+  assert.deepEqual(st.known, ['me', 'b']);
+  const later = inRound(1);
+  assert.equal(reduce(later, 'hello', { playerId: 'b' }), later);
+});
+
+test('a player still in the lobby follows a higher round', () => {
+  const st = reduce(inRound(0, { known: ['me', 'old'] }), 'hello', { playerId: 'b', round: 2 });
+  assert.equal(st.round, 2);
+  assert.deepEqual(st.known, ['me', 'b']);
+  assert.deepEqual(st.answers, {});
+  assert.equal(st.roster, null);
+});
+
+test('a player in a started game does not follow a higher round', () => {
+  const started = inRound(0, { roster: ['me', 'b'] });
+  assert.equal(reduce(started, 'hello', { playerId: 'c', round: 1 }), started);
+});
+
+test('messages for the current round are processed as before', () => {
+  let st = reduce(inRound(3), 'hello', { playerId: 'b', round: 3 });
+  st = reduce(st, 'answer', { playerId: 'b', q: 0, text: 'hi', round: 3 });
+  assert.equal(st.answers.b[0], 'hi');
 });

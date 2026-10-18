@@ -69,7 +69,18 @@ function allDone(roster, answers) {
   return roster.every((id) => nextQuestion(answers, id) === QUESTIONS.length);
 }
 
+function nextRound(state) {
+  return { playerId: state.playerId, known: [state.playerId], roster: null, answers: {}, round: (state.round ?? 0) + 1 };
+}
+
+const ROUND_TYPES = ['hello', 'roster', 'answer'];
+
 function reduce(state, type, data) {
+  if (ROUND_TYPES.includes(type)) {
+    const round = data.round ?? 0;
+    if (round > (state.round ?? 0) && !state.roster) state = { ...nextRound(state), round };
+    else if (round !== (state.round ?? 0)) return state;
+  }
   switch (type) {
     case 'hello':
       return state.known.includes(data.playerId) ? state : { ...state, known: [...state.known, data.playerId] };
@@ -275,7 +286,7 @@ const idKey = 'cadavre:id' + (window.name ? ':' + window.name : '');
 const playerId = localStorage[idKey] || (localStorage[idKey] = Math.random().toString(36).slice(2, 10));
 
 const saved = JSON.parse(localStorage[storeKey] || '{}');
-let state = { playerId, known: [playerId], roster: saved.roster || null, answers: saved.answers || {} };
+let state = { playerId, known: [playerId], roster: saved.roster || null, answers: saved.answers || {}, round: saved.round || 0 };
 let forceReveal = false;
 const app = document.getElementById('app');
 app.replaceChildren(el('p', {}, 'Connecting…'));
@@ -293,38 +304,57 @@ let copied = null;
 let confirmAction = null;
 let relays = null;
 
+function persist() {
+  localStorage[storeKey] = JSON.stringify({ round: state.round, roster: state.roster, answers: state.answers });
+}
+
 function update(type, data) {
   state = reduce(state, type, data);
-  localStorage[storeKey] = JSON.stringify({ roster: state.roster, answers: state.answers });
+  persist();
   render();
 }
 
+const send = (type, data) => net.send(type, { ...data, round: state.round });
+
 function broadcast(type, data) {
-  net.send(type, data);
-  update(type, data);
+  const msg = { ...data, round: state.round };
+  net.send(type, msg);
+  update(type, msg);
+}
+
+function sendState() {
+  send('hello', { playerId });
+  if (state.roster) send('roster', { roster: state.roster });
+  for (const [id, lines] of Object.entries(state.answers)) {
+    lines.forEach((text, q) => text && send('answer', { playerId: id, q, text }));
+  }
+}
+
+function newGame() {
+  state = nextRound(state);
+  forceReveal = false;
+  persist();
+  render(true);
+  send('hello', { playerId });
 }
 
 net.onMessage((type, data, peerId) => {
   if (type === 'hello') peerPlayer[peerId] = data.playerId;
   const before = JSON.stringify(state.roster);
+  const wasKnown = state.known.includes(data.playerId);
   update(type, data);
-  if (type === 'roster' && JSON.stringify(state.roster) !== before) net.send('roster', { roster: state.roster });
+  if (type === 'hello' && !wasKnown && state.known.includes(data.playerId)) sendState();
+  if (type === 'roster' && JSON.stringify(state.roster) !== before) send('roster', { roster: state.roster });
 });
 net.onPeerLeave((peerId) => {
   if (peerPlayer[peerId]) update('bye', { playerId: peerPlayer[peerId] });
 });
-net.onPeerJoin(() => {
-  net.send('hello', { playerId });
-  if (state.roster) net.send('roster', { roster: state.roster });
-  for (const [id, lines] of Object.entries(state.answers)) {
-    lines.forEach((text, q) => text && net.send('answer', { playerId: id, q, text }));
-  }
-});
+net.onPeerJoin(sendState);
 net.onStatus((status) => {
   relays = status;
   if (lastKey === 'lobby') render();
 });
-net.send('hello', { playerId });
+send('hello', { playerId });
 
 addEventListener('keydown', (e) => {
   if (isConfirmKey(e) && confirmAction) {
@@ -356,7 +386,7 @@ function render(force = false) {
   confirmAction = null;
   app.replaceChildren(el('h1', {}, 'Cadavre exquis'));
   if (key === 'lobby') return renderLobby();
-  if (key === 'closed') return app.append(el('p', {}, 'This game has already started. Open a new room to play.'));
+  if (key === 'closed') return app.append(el('p', {}, 'This game has already started. Start a new one to play with whoever is here.'), el('button', { onclick: newGame }, 'New game'));
   if (key === 'story') return renderStory();
   if (key === 'wait') return renderWaiting();
   renderQuestion(Number(key.slice(1)));
@@ -447,11 +477,7 @@ function renderStory() {
   const text = formatStory(lines);
   const story = el('p', { className: 'story' }, text);
   const copyBtn = el('button', { onclick: () => copyText(text, 'story', story) }, copied === 'story' ? 'Copied ✓' : 'Copy');
-  const newGame = el('button', { onclick: () => {
-    location.hash = newRoomCode() + (local ? '?local' : '');
-    location.reload();
-  } }, 'New game');
-  app.append(story, el('div', { className: 'actions' }, copyBtn, newGame));
+  app.append(story, el('div', { className: 'actions' }, copyBtn, el('button', { onclick: newGame }, 'New game')));
 }
 
 render();
